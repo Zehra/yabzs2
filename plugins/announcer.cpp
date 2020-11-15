@@ -1,96 +1,60 @@
-// announcer.cpp
+// Announcer.cpp
 
 #include "bzfsAPI.h"
+#include "bzcommon.h"
 
-class announcer: public bz_Plugin
+void game_end_function(void) {
+    int winner = get_winner();   
+    bz_sendTextMessagef(BZ_SERVER, BZ_ALLUSERS, "%s has won! Congratulations!", bz_getPlayerCallsign(winner));
+    // Modified: Instead of a per-player message loop, it simply announces to all users.
+}
+
+class Announcer : public bz_Plugin
 {
 public:
     virtual const char* Name(){return "Announcer";}
     virtual void Init ( const char* /*config*/ );
     virtual void Event(bz_EventData *eventData );
     virtual void Cleanup ( void );
-    // utility functions
-    int getWinner(void) {
-        int winner = -1;
-        int wnWin = 0;
-        int wnLoss = 0;
-        
-        bz_APIIntList *player_list = bz_newIntList();
-        bz_getPlayerIndexList(player_list);
-
-        for (unsigned int i = 0; i < player_list->size(); i++) {
-            // (player_list->get(i))
-            int plyr = player_list->get(i);
-            int plWins = bz_getPlayerWins(plyr);
-            int plLosses = bz_getPlayerLosses(plyr);
-            int playerScore = plWins - plLosses;
-            int winnerScore = wnWin - wnLoss;
-            
-            if (playerScore > winnerScore) {
-                winner = plyr; 
-            }
-        }
-        bz_deleteIntList(player_list);
-
-        return winner;
-    }
-    
-    void gameEndFunction(void) {
-        int gmWinner = getWinner();
-        bz_BasePlayerRecord *pr = bz_getPlayerByIndex(gmWinner);
-        if (pr) {
-            bz_sendTextMessagef(BZ_SERVER, BZ_ALLUSERS, "%s has won! Congratulations!", pr->callsign.c_str());
-            bz_freePlayerRecord(pr);
-        }  
-    }
-
 };
 
-BZ_PLUGIN(announcer)
+BZ_PLUGIN(Announcer)
 
-void announcer::Init (const char*config) {
+void Announcer::Init (const char* commandLine) {
     Register(bz_ePlayerJoinEvent);
-    Register(bz_ePlayerDieEvent);
     Register(bz_eGameEndEvent);
+    Register(bz_ePlayerDieEvent);
 }
 
-void announcer::Cleanup (void) {
+void Announcer::Cleanup (void) {
     Flush();
 }
 
-void announcer::Event(bz_EventData *eventData ){
+void Announcer::Event(bz_EventData *eventData ){
     switch (eventData->eventType) {
-
      case bz_ePlayerJoinEvent: {
-     bz_PlayerJoinPartEventData_V1* joinData = (bz_PlayerJoinPartEventData_V1*)eventData;
+        bz_PlayerJoinPartEventData_V1* joinData = (bz_PlayerJoinPartEventData_V1*)eventData;
+        bz_sendTextMessagef(BZ_SERVER, BZ_ALLUSERS, "Everybody say 'TI-DI-DI', %s has joined!",
+            joinData->record->callsign.c_str());
+     }break;
 
-     bz_BasePlayerRecord *pr = bz_getPlayerByIndex(joinData->playerID);
-        if (pr) {
-            bz_sendTextMessagef(BZ_SERVER, BZ_ALLUSERS, "Everybody say 'TI-DI-DI', %s has joined!", pr->callsign.c_str());
-            bz_freePlayerRecord(pr);
-        }
+     case bz_eGameEndEvent: {
+        bz_GameStartEndEventData_V2* gameEndData = (bz_GameStartEndEventData_V2*)eventData;
+        game_end_function();
      }break;
 
      case bz_ePlayerDieEvent: {
-        bz_PlayerDieEventData_V1* deathData = (bz_PlayerDieEventData_V1*)eventData;
-        
+        bz_PlayerDieEventData_V2* deathData = (bz_PlayerDieEventData_V2*)eventData;
         int killer = deathData->killerID;
-        if (killer != 253) { // If killer is not equal to server.
-            int wins = bz_getPlayerWins(killer);
-            int losses = bz_getPlayerLosses(killer);
-            int score = wins - losses;
-                if ((score + 1) == 20) {
-                    gameEndFunction();
-                } 
+        if (!is_server_player(killer)) {
+            if (is_score_max(killer)) {
+                game_end_function();
+                // Probably should be modified to prevent possible dual-announcement.
+            }
         }
      }break;
-     
-     case bz_eGameEndEvent: {
-        bz_GameStartEndEventData_V2* gameEndData = (bz_GameStartEndEventData_V2*)eventData;      
-        gameEndFunction();
+
+     default:{ 
      }break;
-     
-     default: {
-     } break;
     }
 }
